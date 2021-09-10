@@ -1,6 +1,7 @@
 from scrapy import Spider, Request, FormRequest
 from re import sub
 from urllib.parse import urljoin
+from unidecode import unidecode
 
 
 class FilmFishSpider(Spider):
@@ -231,11 +232,11 @@ class FilmFishSpider(Spider):
 
             yield self.finish(
                 dict(
-                    title=movie_title.strip(),
+                    title=unidecode(movie_title.strip()),
                     type=type_name,
                     genre=genre_name,
                     sub_genre=sub_genre_name,
-                    list_name=mood_title,
+                    list_name=unidecode(mood_title),
                 )
             )
 
