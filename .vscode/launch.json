@@ -11,7 +11,8 @@
             "module": "scrapy",
             "args": [
                 "crawl",
-                "filmfish"
+                "filmfish",
+                "-o output.json"
             ],
             "console": "integratedTerminal"
         }
