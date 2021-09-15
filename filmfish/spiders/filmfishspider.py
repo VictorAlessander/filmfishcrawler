@@ -25,7 +25,6 @@ class FilmFishSpider(Spider):
     GET_MOVIES_FOR_PAGINATION_PATH = (
         "https://www.film-fish.com/movies/index/get-movies-for-pagination/"
     )
-    MOOD_LIST_ID = 3520
     SORT_MODE = "rating"
 
     def start_requests(self):
@@ -90,6 +89,7 @@ class FilmFishSpider(Spider):
                     ),
                     headers={"X-Requested-With": "XMLHttpRequest"},
                     formdata=dict(id=genre["id"]),
+                    dont_filter=True,
                 )
 
     def parse_sub_genres(self, response, type_name, genre_name):
@@ -115,6 +115,7 @@ class FilmFishSpider(Spider):
                 ),
                 headers={"X-Requested-With": "XMLHttpRequest"},
                 formdata=dict(id=sub_genre["id"]),
+                dont_filter=True,
             )
 
     def parse_moods(
@@ -132,8 +133,8 @@ class FilmFishSpider(Spider):
         )
 
         # Using recursion to load more content (if exists)
-        if moods_elements is not None and trending is False:
-            offset += 9
+        if moods_elements and trending is False:
+            offset += 3
 
             try:
                 yield FormRequest(
@@ -147,7 +148,8 @@ class FilmFishSpider(Spider):
                         offset=offset,
                     ),
                     headers={"X-Requested-With": "XMLHttpRequest"},
-                    formdata=dict(id=genre_id, offset=offset),
+                    formdata=dict(id=genre_id, offset=str(offset)),
+                    dont_filter=True,
                 )
             # Probably nothing was returned from form request
             except TypeError:
@@ -180,6 +182,7 @@ class FilmFishSpider(Spider):
                     sub_genre_name=sub_genre_name,
                 ),
                 callback=self.parse_movies,
+                dont_filter=True,
             )
 
     def parse_movies(
@@ -190,17 +193,38 @@ class FilmFishSpider(Spider):
         sub_genre_name,
         mood_title,
         offset=0,
+        mood_list_id=None,
     ):
         content = response.xpath(
             "//li[@itemprop='itemListElement']/div[@class='row']/div/div/div/div[@class='right-wrp']"
         )
 
-        mood_title = mood_title.replace("\\n", "").strip()
+        if not content:
+            content = response.xpath(
+                "//li[@itemprop='{}']//div[@class='{}']".format(
+                    '\\"itemListElement\\"', '\\"right-wrp\\"'
+                )
+            )
 
-        if content is not None:
-            offset += 20
+        if offset == 0:
+            mood_title = mood_title.replace("\\n", "").strip()
+
+        if content:
+            offset += 5
 
             try:
+                if not mood_list_id:
+                    get_payload = [
+                        value.replace("=", "")
+                        .replace(";", "")
+                        .replace("\r", "")
+                        .replace('"', "")
+                        .strip()
+                        for value in response.xpath("//script")[8]
+                        .xpath("text()")
+                        .re("=.*")
+                    ]
+
                 yield FormRequest(
                     url=self.GET_MOVIES_FOR_PAGINATION_PATH,
                     callback=self.parse_movies,
@@ -210,25 +234,43 @@ class FilmFishSpider(Spider):
                         sub_genre_name=sub_genre_name,
                         mood_title=mood_title,
                         offset=offset,
+                        mood_list_id=mood_list_id
+                        if mood_list_id
+                        else get_payload[0],
                     ),
-                    headers={"X-Requested-With": "XMLHttpRequest"},
+                    headers={
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                        "Accept-Encoding": "gzip, deflate, br",
+                    },
                     formdata=dict(
-                        moodList=self.MOOD_LIST_ID,
-                        offset=offset,
+                        moodList=mood_list_id
+                        if mood_list_id
+                        else get_payload[0],
+                        offset=str(offset),
                         sort=self.SORT_MODE,
                     ),
+                    dont_filter=True,
                 )
             # Probably nothing was returned from form request
-            except TypeError:
+            except TypeError as exc:
                 self.logger.info(
-                    f"[-] Found a possible endline in {mood_title}."
+                    f"[-] Found a possible endline in mood: {mood_title}."
                 )
                 pass
 
         for element in content:
+
             movie_title = element.xpath(
                 "div[@class='header-group']/h4/a/span[@itemprop='name']/text()"
             ).get()
+
+            if not movie_title:
+                movie_title = element.xpath(
+                    "div[@class='{}']/h4/a/span[@itemprop='{}']/text()".format(
+                        '\\"header-group\\"', '\\"name\\"'
+                    )
+                ).get()
 
             yield self.finish(
                 dict(
@@ -239,6 +281,9 @@ class FilmFishSpider(Spider):
                     list_name=unidecode(mood_title),
                 )
             )
+
+    def parse_related_lists(self, response):
+        related_lists_content = response.css("section.gray-section")
 
     def finish(self, data):
         return data
