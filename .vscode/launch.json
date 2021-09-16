@@ -14,7 +14,8 @@
                 "filmfish",
                 "-o output.json"
             ],
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "justMyCode": false
         }
     ]
 }

@@ -20,6 +20,7 @@ USER_AGENT = "filmfish crawler (+https://victoralessander.github.io/)"
 ROBOTSTXT_OBEY = False
 
 DUPEFILTER_DEBUG = True
+DOWNLOAD_MAXSIZE = 0
 
 # Configure maximum concurrent requests performed by Scrapy (default: 16)
 # CONCURRENT_REQUESTS = 32
