@@ -37,7 +37,7 @@ class FilmFishSpider(Spider):
             .replace("\/", "/")
             .encode("utf-8")
         )
-        response = HtmlResponse(url=url, body=body)
+        response = HtmlResponse(url=url, body=body, encoding="utf-8")
         return Selector(response)
 
     def start_requests(self):
@@ -79,12 +79,16 @@ class FilmFishSpider(Spider):
                     id=element.xpath("a/@data-id").get().replace('\\"', ""),
                     name=name,
                 )
+            # Exception handling for trending genres
             except AttributeError:
                 yield FormRequest(
                     url=self.MOVIES_TRENDING_PATH,
                     callback=self.parse_moods,
                     cb_kwargs=dict(
-                        trending=True, type_name=type_name, genre_name=name
+                        trending=True,
+                        type_name=type_name,
+                        genre_name=name,
+                        referer=self.MOVIES_TRENDING_PATH,
                     ),
                     headers={"X-Requested-With": "XMLHttpRequest"},
                     formdata=dict(type=type_id),
@@ -125,6 +129,7 @@ class FilmFishSpider(Spider):
                     genre_id=sub_genre["id"],
                     genre_name=genre_name,
                     type_name=type_name,
+                    referer=self.MOVIES_MOOD_LIST_PATH,
                 ),
                 headers={"X-Requested-With": "XMLHttpRequest"},
                 formdata=dict(id=sub_genre["id"]),
@@ -140,10 +145,15 @@ class FilmFishSpider(Spider):
         sub_genre_name=None,
         trending=False,
         offset=0,
+        referer=None,
     ):
-        moods_elements = response.xpath(
-            "//div[@class='{}']".format('\\"caption\\"')
+        original_request_url = response.request.url
+
+        response = self.sanitize_response(
+            referer if referer else response.request.url, response
         )
+
+        moods_elements = response.xpath("//div[@class='caption']")
 
         # Using recursion to load more content (if exists)
         if moods_elements and trending is False:
@@ -158,6 +168,7 @@ class FilmFishSpider(Spider):
                     genre_name=genre_name,
                     sub_genre_name=sub_genre_name,
                     offset=offset,
+                    referer=referer,
                 ),
                 headers={"X-Requested-With": "XMLHttpRequest"},
                 formdata=dict(id=genre_id, offset=str(offset)),
@@ -176,10 +187,11 @@ class FilmFishSpider(Spider):
                 .get()
                 .replace('\\"', "")
                 .replace("\\n", "")
-                .replace("\\", ""),
+                .replace("\\", "")
+                .replace("u2019", "’"),
             )
 
-            url = urljoin(response.request.url, mood["url"])
+            url = urljoin(original_request_url, mood["url"])
 
             yield Request(
                 url=url,
@@ -189,6 +201,7 @@ class FilmFishSpider(Spider):
                     genre_name=genre_name,
                     sub_genre_name=sub_genre_name,
                     referer=url,
+                    outside_call=True,
                 ),
                 callback=self.parse_movies,
                 dont_filter=True,
@@ -204,6 +217,7 @@ class FilmFishSpider(Spider):
         offset=0,
         mood_list_id=None,
         referer=None,
+        outside_call=False,
     ):
         response = self.sanitize_response(
             referer if referer else response.request.url, response
@@ -218,7 +232,7 @@ class FilmFishSpider(Spider):
             offset += 20
 
             if not mood_list_id:
-                get_payload = [
+                mood_list_variables = [
                     value.replace("=", "")
                     .replace(";", "")
                     .replace("\r", "")
@@ -228,6 +242,17 @@ class FilmFishSpider(Spider):
                     .xpath("text()")
                     .re("=.*")
                 ]
+                mood_list_id = mood_list_variables[0]
+
+            payload = (
+                dict(
+                    moodList=mood_list_id,
+                    offset=str(offset),
+                    sorting=self.SORT_MODE,
+                ),
+            )
+
+            self.logger.info(f"Payload: {payload}")
 
             yield FormRequest(
                 url=self.GET_MOVIES_FOR_PAGINATION_PATH,
@@ -238,9 +263,7 @@ class FilmFishSpider(Spider):
                     sub_genre_name=sub_genre_name,
                     mood_title=mood_title,
                     offset=offset,
-                    mood_list_id=mood_list_id
-                    if mood_list_id
-                    else get_payload[0],
+                    mood_list_id=mood_list_id,
                     referer=referer,
                 ),
                 headers={
@@ -254,11 +277,7 @@ class FilmFishSpider(Spider):
                     "Referer": referer,
                 },
                 method="POST",
-                formdata=dict(
-                    moodList=mood_list_id if mood_list_id else get_payload[0],
-                    offset=str(offset),
-                    sorting=self.SORT_MODE,
-                ),
+                formdata=payload[0],
                 dont_filter=True,
             )
 
