@@ -1,3 +1,9 @@
+from sqlalchemy import create_engine
+from .models import create_table
+
+engine = create_engine("sqlite:///filmfish.db")
+create_table(engine)
+
 # Scrapy settings for filmfish project
 #
 # For simplicity, this file contains only settings considered important or
@@ -66,9 +72,19 @@ TELNETCONSOLE_ENABLED = False
 
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
-# ITEM_PIPELINES = {
-#    'filmfish.pipelines.FilmfishPipeline': 300,
-# }
+ITEM_PIPELINES = {
+    "filmfish.pipelines.FilmfishPipeline": 300,
+}
+
+
+CONNECTION_STRING = "{drivername}://{user}:{passwd}@{host}:{port}/{db_name}?charset=utf8".format(
+    drivername="mysql",
+    user="user",
+    passwd="pass",
+    host="localhost",
+    port="3306",
+    db_name="data_scraped",
+)
 
 # Enable and configure the AutoThrottle extension (disabled by default)
 # See https://docs.scrapy.org/en/latest/topics/autothrottle.html

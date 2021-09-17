@@ -3,6 +3,9 @@ from scrapy.http import HtmlResponse
 from re import sub
 from urllib.parse import urljoin
 from unidecode import unidecode
+from sqlalchemy.orm import sessionmaker
+from ..models import MovieShow
+from ..settings import engine
 
 
 class FilmFishSpider(Spider):
@@ -27,6 +30,17 @@ class FilmFishSpider(Spider):
         "https://www.film-fish.com/movies/index/get-movies-for-pagination/"
     )
     SORT_MODE = "rating"
+
+    def __init__(self, name="filmfish", **kwargs):
+        self.session = self.prepare_db_session()
+
+        super().__init__(name=name, **kwargs)
+
+    @staticmethod
+    def prepare_db_session():
+        Session = sessionmaker(bind=engine)
+        session = Session()
+        return session.query(MovieShow)
 
     @staticmethod
     def sanitize_response(url, response):
