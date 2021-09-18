@@ -3,44 +3,21 @@ from scrapy.http import HtmlResponse
 from re import sub
 from urllib.parse import urljoin
 from unidecode import unidecode
-from sqlalchemy.orm import sessionmaker
-from ..models import MovieShow
-from ..settings import engine
+from ..constants import (
+    MOVIES_TYPE_GENRES_PATH,
+    MOVIES_MOOD_LIST_PATH,
+    MOVIES_SUB_GENRES_PATH,
+    MOVIES_TRENDING_PATH,
+    GET_MOVIES_FOR_PAGINATION_PATH,
+    LOAD_MOOD_LISTS_PATH,
+    SORT_MODE,
+    get_movies_for_pagination_headers,
+)
 
 
 class FilmFishSpider(Spider):
     name = "filmfish"
     start_urls = ["https://www.film-fish.com/"]
-    MOVIES_TYPE_GENRES_PATH = (
-        "https://www.film-fish.com/movies/index/get-genres-by-type"
-    )
-    MOVIES_MOOD_LIST_PATH = (
-        "https://www.film-fish.com/movies/index/get-mood-lists"
-    )
-    MOVIES_SUB_GENRES_PATH = (
-        "https://www.film-fish.com/movies/index/get-sub-genre"
-    )
-    MOVIES_TRENDING_PATH = (
-        "https://www.film-fish.com/movies/index/get-trending-mood-lists"
-    )
-    LOAD_MOOD_LISTS_PATH = (
-        "https://www.film-fish.com/movies/index/load-mood-lists"
-    )
-    GET_MOVIES_FOR_PAGINATION_PATH = (
-        "https://www.film-fish.com/movies/index/get-movies-for-pagination/"
-    )
-    SORT_MODE = "rating"
-
-    def __init__(self, name="filmfish", **kwargs):
-        self.session = self.prepare_db_session()
-
-        super().__init__(name=name, **kwargs)
-
-    @staticmethod
-    def prepare_db_session():
-        Session = sessionmaker(bind=engine)
-        session = Session()
-        return session.query(MovieShow)
 
     @staticmethod
     def sanitize_response(url, response):
@@ -75,7 +52,7 @@ class FilmFishSpider(Spider):
 
         for type in types:
             yield FormRequest(
-                url=self.MOVIES_TYPE_GENRES_PATH,
+                url=MOVIES_TYPE_GENRES_PATH,
                 callback=self.parse_genres,
                 cb_kwargs=dict(type_id=type["id"], type_name=type["name"]),
                 headers={"X-Requested-With": "XMLHttpRequest"},
@@ -96,7 +73,7 @@ class FilmFishSpider(Spider):
             # Exception handling for trending genres
             except AttributeError:
                 yield FormRequest(
-                    url=self.MOVIES_TRENDING_PATH,
+                    url=MOVIES_TRENDING_PATH,
                     callback=self.parse_moods,
                     cb_kwargs=dict(
                         trending=True,
@@ -109,7 +86,7 @@ class FilmFishSpider(Spider):
                 )
             else:
                 yield FormRequest(
-                    url=self.MOVIES_SUB_GENRES_PATH,
+                    url=MOVIES_SUB_GENRES_PATH,
                     callback=self.parse_sub_genres,
                     cb_kwargs=dict(
                         genre_name=genre["name"]
@@ -136,14 +113,14 @@ class FilmFishSpider(Spider):
             )
 
             yield FormRequest(
-                url=self.MOVIES_MOOD_LIST_PATH,
+                url=MOVIES_MOOD_LIST_PATH,
                 callback=self.parse_moods,
                 cb_kwargs=dict(
                     sub_genre_name=sub_genre["name"].replace('"', "").strip(),
                     genre_id=sub_genre["id"],
                     genre_name=genre_name,
                     type_name=type_name,
-                    referer=self.MOVIES_MOOD_LIST_PATH,
+                    referer=MOVIES_MOOD_LIST_PATH,
                 ),
                 headers={"X-Requested-With": "XMLHttpRequest"},
                 formdata=dict(id=sub_genre["id"]),
@@ -174,7 +151,7 @@ class FilmFishSpider(Spider):
             offset += 3
 
             yield FormRequest(
-                url=self.LOAD_MOOD_LISTS_PATH,
+                url=LOAD_MOOD_LISTS_PATH,
                 callback=self.parse_moods,
                 cb_kwargs=dict(
                     type_name=type_name,
@@ -215,7 +192,6 @@ class FilmFishSpider(Spider):
                     genre_name=genre_name,
                     sub_genre_name=sub_genre_name,
                     referer=url,
-                    outside_call=True,
                 ),
                 callback=self.parse_movies,
                 dont_filter=True,
@@ -231,7 +207,6 @@ class FilmFishSpider(Spider):
         offset=0,
         mood_list_id=None,
         referer=None,
-        outside_call=False,
     ):
         response = self.sanitize_response(
             referer if referer else response.request.url, response
@@ -262,14 +237,12 @@ class FilmFishSpider(Spider):
                 dict(
                     moodList=mood_list_id,
                     offset=str(offset),
-                    sorting=self.SORT_MODE,
+                    sorting=SORT_MODE,
                 ),
             )
 
-            self.logger.info(f"Payload: {payload}")
-
             yield FormRequest(
-                url=self.GET_MOVIES_FOR_PAGINATION_PATH,
+                url=GET_MOVIES_FOR_PAGINATION_PATH,
                 callback=self.parse_movies,
                 cb_kwargs=dict(
                     type_name=type_name,
@@ -280,16 +253,7 @@ class FilmFishSpider(Spider):
                     mood_list_id=mood_list_id,
                     referer=referer,
                 ),
-                headers={
-                    "X-Requested-With": "XMLHttpRequest",
-                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                    "Accept": "*/*",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Host": "www.film-fish.com",
-                    "Origin": "https://www.film-fish.com",
-                    "Referer": referer,
-                },
+                headers=get_movies_for_pagination_headers(referer),
                 method="POST",
                 formdata=payload[0],
                 dont_filter=True,
@@ -312,7 +276,7 @@ class FilmFishSpider(Spider):
 
     # TODO
     def parse_related_lists(self, response):
-        related_lists_content = response.css("section.gray-section")
+        related_lists_content = response.css("section.gray-section")  # noqa
 
     def finish(self, data):
         return data
