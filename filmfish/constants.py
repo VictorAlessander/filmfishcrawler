@@ -10,10 +10,14 @@ LOAD_MOOD_LISTS_PATH = "https://www.film-fish.com/movies/index/load-mood-lists"
 GET_MOVIES_FOR_PAGINATION_PATH = (
     "https://www.film-fish.com/movies/index/get-movies-for-pagination/"
 )
+GET_RELATED_MOOD_LISTS_PATH = (
+    "https://www.film-fish.com/movies/index/get-related-mood-lists"
+)
+
 SORT_MODE = "rating"
 
 
-def get_movies_for_pagination_headers(referer):
+def form_request_headers(referer):
     return {
         "X-Requested-With": "XMLHttpRequest",
         "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",

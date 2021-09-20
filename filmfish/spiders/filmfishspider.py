@@ -4,6 +4,7 @@ from re import sub
 from urllib.parse import urljoin
 from unidecode import unidecode
 from ..constants import (
+    GET_RELATED_MOOD_LISTS_PATH,
     MOVIES_TYPE_GENRES_PATH,
     MOVIES_MOOD_LIST_PATH,
     MOVIES_SUB_GENRES_PATH,
@@ -11,8 +12,9 @@ from ..constants import (
     GET_MOVIES_FOR_PAGINATION_PATH,
     LOAD_MOOD_LISTS_PATH,
     SORT_MODE,
-    get_movies_for_pagination_headers,
+    form_request_headers,
 )
+from scrapy.exceptions import NotSupported
 
 
 class FilmFishSpider(Spider):
@@ -79,7 +81,7 @@ class FilmFishSpider(Spider):
                         trending=True,
                         type_name=type_name,
                         genre_name=name,
-                        referer=self.MOVIES_TRENDING_PATH,
+                        referer=MOVIES_TRENDING_PATH,
                     ),
                     headers={"X-Requested-With": "XMLHttpRequest"},
                     formdata=dict(type=type_id),
@@ -138,13 +140,11 @@ class FilmFishSpider(Spider):
         offset=0,
         referer=None,
     ):
-        original_request_url = response.request.url
-
-        response = self.sanitize_response(
+        sanitized_response = self.sanitize_response(
             referer if referer else response.request.url, response
         )
 
-        moods_elements = response.xpath("//div[@class='caption']")
+        moods_elements = sanitized_response.xpath("//div[@class='caption']")
 
         # Using recursion to load more content (if exists)
         if moods_elements and trending is False:
@@ -182,7 +182,7 @@ class FilmFishSpider(Spider):
                 .replace("u2019", "’"),
             )
 
-            url = urljoin(original_request_url, mood["url"])
+            url = urljoin(response.request.url, mood["url"])
 
             yield Request(
                 url=url,
@@ -208,6 +208,9 @@ class FilmFishSpider(Spider):
         mood_list_id=None,
         referer=None,
     ):
+        if response.status == 404:
+            raise NotSupported
+
         response = self.sanitize_response(
             referer if referer else response.request.url, response
         )
@@ -217,28 +220,26 @@ class FilmFishSpider(Spider):
         if offset == 0:
             mood_title = mood_title.replace("\\n", "").strip()
 
+        if not mood_list_id:
+            mood_list_variables = [
+                value.replace("=", "")
+                .replace(";", "")
+                .replace("\r", "")
+                .replace('"', "")
+                .strip()
+                for value in response.xpath("//script")[8]
+                .xpath("text()")
+                .re("=.*")
+            ]
+            mood_list_id = mood_list_variables[0]
+
         if content:
             offset += 20
 
-            if not mood_list_id:
-                mood_list_variables = [
-                    value.replace("=", "")
-                    .replace(";", "")
-                    .replace("\r", "")
-                    .replace('"', "")
-                    .strip()
-                    for value in response.xpath("//script")[8]
-                    .xpath("text()")
-                    .re("=.*")
-                ]
-                mood_list_id = mood_list_variables[0]
-
-            payload = (
-                dict(
-                    moodList=mood_list_id,
-                    offset=str(offset),
-                    sorting=SORT_MODE,
-                ),
+            payload = dict(
+                moodList=mood_list_id,
+                offset=str(offset),
+                sorting=SORT_MODE,
             )
 
             yield FormRequest(
@@ -253,11 +254,30 @@ class FilmFishSpider(Spider):
                     mood_list_id=mood_list_id,
                     referer=referer,
                 ),
-                headers=get_movies_for_pagination_headers(referer),
+                headers=form_request_headers(referer),
                 method="POST",
-                formdata=payload[0],
+                formdata=payload,
                 dont_filter=True,
             )
+
+        # Handle with related lists
+        yield FormRequest(
+            url=GET_RELATED_MOOD_LISTS_PATH,
+            callback=self.parse_related_mood_lists,
+            cb_kwargs=dict(
+                referer=GET_RELATED_MOOD_LISTS_PATH,
+                mood_list_id=mood_list_id,
+                type_name=type_name,
+                genre_name=genre_name,
+                sub_genre_name=sub_genre_name,
+            ),
+            headers=form_request_headers(referer),
+            method="POST",
+            formdata={
+                "id": mood_list_id,
+                "MIME Type": form_request_headers(referer)["Content-Type"],
+            },
+        )
 
         for element in content:
             movie_title = element.xpath(
@@ -274,9 +294,70 @@ class FilmFishSpider(Spider):
                 )
             )
 
-    # TODO
-    def parse_related_lists(self, response):
-        related_lists_content = response.css("section.gray-section")  # noqa
+    def parse_related_mood_lists(
+        self,
+        response,
+        mood_list_id,
+        type_name,
+        genre_name,
+        sub_genre_name,
+        referer=None,
+        offset=0,
+    ):
+        if response.status == 404:
+            raise NotSupported
+
+        sanitized_response = self.sanitize_response(
+            referer if referer else response.request.url, response
+        )
+
+        related_lists = sanitized_response.xpath(
+            "//div[@class='col-sm-4 card-wrp']/div/div[@class='caption']"
+        )
+
+        if related_lists:
+            offset += 9
+
+            yield FormRequest(
+                url=GET_RELATED_MOOD_LISTS_PATH,
+                callback=self.parse_related_mood_lists,
+                cb_kwargs=dict(
+                    referer=GET_RELATED_MOOD_LISTS_PATH,
+                    mood_list_id=mood_list_id,
+                    type_name=type_name,
+                    genre_name=genre_name,
+                    sub_genre_name=sub_genre_name,
+                    offset=offset,
+                ),
+                headers=form_request_headers(referer),
+                method="POST",
+                formdata={
+                    "id": mood_list_id,
+                    "MIME Type": form_request_headers(referer)["Content-Type"],
+                    "offset": str(offset),
+                },
+                dont_filter=True,
+            )
+
+        for mood_list in related_lists:
+            mood_list_path = (
+                mood_list.xpath("a/@href").get().replace("u2019", "’")
+            )
+            mood_title = mood_list.xpath("a/h1/span/text()").get()
+
+            url = urljoin(response.request.url, mood_list_path)
+
+            yield Request(
+                url=url,
+                cb_kwargs=dict(
+                    mood_title=mood_title.strip(),
+                    type_name=type_name,
+                    genre_name=genre_name,
+                    sub_genre_name=sub_genre_name,
+                    referer=url,
+                ),
+                callback=self.parse_movies,
+            )
 
     def finish(self, data):
         return data

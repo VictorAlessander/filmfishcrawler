@@ -12,7 +12,7 @@
             "args": [
                 "crawl",
                 "filmfish",
-                "-o output.json"
+                // "-o output.json"
             ],
             "console": "integratedTerminal",
             "justMyCode": false

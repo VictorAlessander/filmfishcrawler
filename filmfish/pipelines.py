@@ -19,20 +19,27 @@ class FilmFishPipeline:
     @staticmethod
     def prepare_db_session():
         Session = sessionmaker(bind=engine)
-        session = Session()
-        return session.query(MovieShow)
+        return Session()
 
     def process_item(self, item, spider):
         item_adapter = ItemAdapter(item)
 
-        item_exists = self.session.filter_by(
-            title=item_adapter["title"], mood_list=item_adapter["mood_list"]
-        ).first()
+        item_exists = (
+            self.session.query(MovieShow)
+            .filter_by(
+                title=item_adapter["title"],
+                genre=item_adapter["genre"],
+                sub_genre=item_adapter["sub_genre"],
+                list_name=item_adapter["list_name"],
+            )
+            .first()
+        )
 
         if item_exists:
             raise DropItem(f"Duplicated item found: {item_adapter!r}")
 
         new_movieshow = MovieShow(**item_adapter)
         self.session.add(new_movieshow)
+        self.session.commit()
 
-        return new_movieshow
+        return item
