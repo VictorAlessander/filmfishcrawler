@@ -341,7 +341,10 @@ class FilmFishSpider(Spider):
 
         for mood_list in related_lists:
             mood_list_path = (
-                mood_list.xpath("a/@href").get().replace("u2019", "’")
+                mood_list.xpath("a/@href")
+                .get()
+                .replace("u2019", "’")
+                .replace("u00e9", "é")
             )
             mood_title = mood_list.xpath("a/h1/span/text()").get()
 
